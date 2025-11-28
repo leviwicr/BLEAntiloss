@@ -109,7 +109,7 @@ void BLECommunicationInit(){
   pBLEScan->setActiveScan(true);//设置为主动扫描模式
   Serial.println("Scanning until device found...");
   
-  pBLEScan->start(5,NULL,true);//一直扫描，无结束回调函数，不阻塞
+  pBLEScan->start(60,NULL,true);//一直扫描，无结束回调函数，不阻塞
   while(!scan){
     delay(10);
   }
