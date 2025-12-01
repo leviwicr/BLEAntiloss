@@ -4,7 +4,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-
+#include "SensorQMI8658.hpp"
 
 /* 蓝牙通信与RSSI检测部分 */
 #define SERVICE_UUID "12345678-1234-5678-1234-56789abcdef0"   //服务与特征的UUID，需要和广播设备一致，需交流信息时使用
@@ -13,7 +13,7 @@ static boolean scan=false;//是否扫描到设备的标志位
 static boolean connected=false;//判断连接是否成功与正常的标志位
 static bool isLost=false;//判断RSSI值是否正常的标志位
 static BLEClient *pClient=nullptr;//主机端
-static BLEAddress *pServerAddress=nullptr;//加与不加static有何区别？指针必须！！！指向一个确定的地方
+static BLEAddress *pServerAddress=nullptr;//static限定该变量作用域仅为该文件
 static BLEAdvertisedDevice* ptargetDevice = nullptr;//包含目标连接对象的信息
 
 static BLERemoteCharacteristic *pRemoteCharacteristic=nullptr;//特征，类
@@ -26,7 +26,7 @@ static int deviceRSSI=-100;
 int RSSICount=0;
 float RSSI_hat=0.0;
 
-
+uint16_t voltage=10;
 /* 屏幕部分 */
 //TFT_eSPI tft=TFT_eSPI();//创建屏幕对象，可指定对象尺寸，不指定将使用User_Setup.h中定义的尺寸
 
@@ -66,6 +66,33 @@ YSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk
 CAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=
 -----END CERTIFICATE-----
 )EOF";
+
+//IMU部分
+#ifndef SENSOR_SDA
+#define SENSOR_SDA  21
+#endif
+
+#ifndef SENSOR_SCL
+#define SENSOR_SCL  22
+#endif
+
+#ifndef SENSOR_IRQ
+#define SENSOR_IRQ  39
+#endif
+
+uint8_t QMI8658_I2C_ADDR_PRIMARY   = 0x18;
+uint8_t QMI8658_I2C_ADDR_SECONDARY = 0x19;//先测试实际目标qmi8658设备的地址！！
+SensorQMI8658 qmi;
+
+struct IMUData{
+  float acc_x;
+  float acc_y;
+  float acc_z;
+  float gyro_x;
+  float gyro_y;
+  float gyro_z;
+};
+struct IMUData *imu;
 /* 蓝牙通信部分 */
 class MyClientCallbacks:public BLEClientCallbacks {
   void onConnect(BLEClient *pclient){}
@@ -204,6 +231,29 @@ void MQTTInit(){
   connectToMQTT();
 }
 
+//IMU部分
+void IMUInit(){
+
+  pinMode(SENSOR_IRQ, INPUT);
+
+  //Serial.println("QMI8658 Sensor Temperature");
+    
+  if (!qmi.begin(Wire, QMI8658_I2C_ADDR_SECONDARY, SENSOR_SDA, SENSOR_SCL)) {
+    Serial.println("Failed to find QMI8658 - check your wiring!");
+    while (1) {
+      delay(1000);
+    }
+  }
+  Serial.println("Init QMI8658 Sensor success!");
+}
+void IMUTest(){
+  qmi.getAccelerometerScales();
+  qmi.getAccelerometer(imu->acc_x,imu->acc_y,imu->acc_z);
+  qmi.getGyroscopeScales();
+  qmi.getGyroscope(imu->gyro_x,imu->gyro_y,imu->gyro_z);
+  Serial.printf("acc: %f,%f,%f  gyro: %f,%f,%f",imu->acc_x,imu->acc_y,imu->acc_z,imu->gyro_x,imu->gyro_y,imu->gyro_z);
+
+}
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting......");
@@ -239,6 +289,8 @@ void loop() {
     isLost=((RSSI_hat<(-90.0)));
     Serial.printf("RSSI_hat: %f\n",RSSI_hat);
     uint8_t temp=uint8_t(abs(RSSI_hat));
+    voltage=pRemoteCharacteristic->readUInt16();
+    Serial.printf("Voltage: %u\n",voltage);
     pRemoteCharacteristic->writeValue(&temp,1);
     //如果丢失进行报警
     if(isLost){
@@ -255,6 +307,7 @@ void loop() {
     }
     delay(1000);
   }
+  
   else{
     while(!connectToServerOfService()){
       Serial.print(".");
