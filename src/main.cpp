@@ -7,15 +7,18 @@
 
 
 /* 蓝牙通信与RSSI检测部分 */
-//#define SERVICE_UUID="";//服务与特征的UUID，需要和广播设备一致，需交流信息时使用
-//#define CHARACTERISTIC_UUID="";
+#define SERVICE_UUID "12345678-1234-5678-1234-56789abcdef0"   //服务与特征的UUID，需要和广播设备一致，需交流信息时使用
+#define CHARACTERISTIC_UUID "12345678-1234-5678-1234-56789abcdef1"  
 static boolean scan=false;//是否扫描到设备的标志位
 static boolean connected=false;//判断连接是否成功与正常的标志位
 static bool isLost=false;//判断RSSI值是否正常的标志位
-static BLEClient *pClient;//主机端
-static BLEAddress *pServerAddress;//加与不加static有何区别？指针必须！！！指向一个确定的地方
+static BLEClient *pClient=nullptr;//主机端
+static BLEAddress *pServerAddress=nullptr;//加与不加static有何区别？指针必须！！！指向一个确定的地方
 static BLEAdvertisedDevice* ptargetDevice = nullptr;//包含目标连接对象的信息
-//static BLECharacteristic *pCharacteristic;//特征，类
+
+static BLERemoteCharacteristic *pRemoteCharacteristic=nullptr;//特征，类
+
+
 static char targetName[]="linzhi8";
 static int deviceRSSI=-100;
 //unsigned long current_time=0;
@@ -79,6 +82,15 @@ class MyAdvertisedDeviceCallbacks:public BLEAdvertisedDeviceCallbacks{
     if(advertisedDevice.haveName() && strcmp(advertisedDevice.getName().c_str(),targetName)==0){
       deviceRSSI=advertisedDevice.getRSSI();
       Serial.printf("Successfully find: %s RSSI=%d\n", advertisedDevice.getName().c_str(),deviceRSSI);
+      if (ptargetDevice != nullptr) {
+        delete ptargetDevice;
+        ptargetDevice = nullptr;
+      }
+      if (pServerAddress != nullptr) {
+        delete pServerAddress;
+        pServerAddress = nullptr;
+      }
+      
       ptargetDevice = new BLEAdvertisedDevice(advertisedDevice);
       pServerAddress = new BLEAddress(advertisedDevice.getAddress());//new分配空间给BLEAddress这个类的一个实例，通过指针指向
       scan=true;
@@ -88,6 +100,7 @@ class MyAdvertisedDeviceCallbacks:public BLEAdvertisedDeviceCallbacks{
     }
   }
 };
+
 bool connectToServer(){
   //万万不可把pClient作为函数参数传入！！！该步将改变pClient（指针）的值，但改变的是局部变量！函数中使用指针的正确方法是改变指针指向地址而不能改变指针本身！
   //传入的pAddress就是实际的从机地址
@@ -99,6 +112,36 @@ bool connectToServer(){
   Serial.println(" - Connected to server");
   connected=true;
   return true;
+  }
+bool connectToServerOfService(){
+  //万万不可把pClient作为函数参数传入！！！该步将改变pClient（指针）的值，但改变的是局部变量！函数中使用指针的正确方法是改变指针指向地址而不能改变指针本身！
+  //传入的pAddress就是实际的从机地址
+  // 连接到远程 BLE 服务器（从机）
+  if (!pClient->connect(ptargetDevice)) {
+    Serial.println(" - Connection failed");
+    return false;
+  }
+  Serial.println(" - Connected to server");
+  BLERemoteService *pRemoteService=pClient->getService(SERVICE_UUID);
+  if(pRemoteService==nullptr){
+    Serial.print("Failed to find service UUID:");
+    
+    Serial.println(SERVICE_UUID);
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Service found");
+  pRemoteCharacteristic=pRemoteService->getCharacteristic(CHARACTERISTIC_UUID);
+  if (pRemoteCharacteristic == nullptr) {
+    Serial.print("Failed to find characteristic UUID: ");
+    Serial.println(CHARACTERISTIC_UUID);
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Characteristic found");
+  connected = true;
+  return true;
+
 }
 void BLECommunicationInit(){
   BLEDevice::init("ESP32Scanner");
@@ -120,7 +163,7 @@ void BLECommunicationInit(){
   
   Serial.print("trying to Connect to ");
   Serial.println((*pServerAddress).toString().c_str());
-  while(!connectToServer()){
+  while(!connectToServerOfService()){
     delay(10);
   }
 }
@@ -195,6 +238,8 @@ void loop() {
     }
     isLost=((RSSI_hat<(-90.0)));
     Serial.printf("RSSI_hat: %f\n",RSSI_hat);
+    uint8_t temp=uint8_t(abs(RSSI_hat));
+    pRemoteCharacteristic->writeValue(&temp,1);
     //如果丢失进行报警
     if(isLost){
       Serial.println("Warning!!!!!");
@@ -211,7 +256,7 @@ void loop() {
     delay(1000);
   }
   else{
-    while(!connectToServer()){
+    while(!connectToServerOfService()){
       Serial.print(".");
       delay(10);
     }
