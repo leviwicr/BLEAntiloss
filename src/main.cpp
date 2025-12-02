@@ -4,18 +4,26 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include "SensorQMI8658.hpp"
+
+//#define LFL
+#define HZL
 
 
 /* 蓝牙通信与RSSI检测部分 */
-//#define SERVICE_UUID="";//服务与特征的UUID，需要和广播设备一致，需交流信息时使用
-//#define CHARACTERISTIC_UUID="";
+#define SERVICE_UUID "12345678-1234-5678-1234-56789abcdef0"   //服务与特征的UUID，需要和广播设备一致，需交流信息时使用
+#define CHARACTERISTIC_UUID "12345678-1234-5678-1234-56789abcdef1"  
+#define CHARACTERISTIC_UUID_2 "0c0f900e-d6fa-49de-9634-4d6e296b5155"
 static boolean scan=false;//是否扫描到设备的标志位
 static boolean connected=false;//判断连接是否成功与正常的标志位
 static bool isLost=false;//判断RSSI值是否正常的标志位
-static BLEClient *pClient;//主机端
-static BLEAddress *pServerAddress;//加与不加static有何区别？指针必须！！！指向一个确定的地方
+static BLEClient *pClient=nullptr;//主机端
+static BLEAddress *pServerAddress=nullptr;//static限定该变量作用域仅为该文件
 static BLEAdvertisedDevice* ptargetDevice = nullptr;//包含目标连接对象的信息
-//static BLECharacteristic *pCharacteristic;//特征，类
+
+static BLERemoteCharacteristic *pRemoteCharacteristic=nullptr;//特征，类
+static BLERemoteCharacteristic *pRemoteCharacteristic_2=nullptr;//特征，类
+
 static char targetName[]="linzhi8";
 static int deviceRSSI=-100;
 //unsigned long current_time=0;
@@ -23,53 +31,100 @@ static int deviceRSSI=-100;
 int RSSICount=0;
 float RSSI_hat=0.0;
 
-
+uint16_t voltage=10;
 /* 屏幕部分 */
 //TFT_eSPI tft=TFT_eSPI();//创建屏幕对象，可指定对象尺寸，不指定将使用User_Setup.h中定义的尺寸
 
 /* WiFi与MQTT部分 */
 //const char *ssid="happyhappy";
 //const char *password="1029384756";
+
+#ifdef LFL
 const char *ssid="Xiaomi 15";
 const char *password="99999999";
 const char *mqtt_broker="pbcac80e.ala.cn-hangzhou.emqxsl.cn";
 const char* mqtt_usrname="levi";
 const char* mqtt_password="1029384756";
 int mqtt_port=8883;
-WiFiClientSecure espClient;//创建底层TCP连接对象
-PubSubClient client(espClient);//基于TCP的MQTT客户端，传入网络对象
-// Load DigiCert Global Root CA ca_cert, which is used by EMQX Cloud Serverless Deployment
+WiFiClientSecure espClient;//创建底层SSL连接对象
+PubSubClient client(espClient);//基于SSL的MQTT客户端，传入网络对象
 const char* ca_cert = R"EOF(
 -----BEGIN CERTIFICATE-----
-MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh
 MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD
-QTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVT
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT
 MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j
-b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG
-9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsB
-CSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97
-nh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt
-43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7P
-T19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4
-gdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAO
-BgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbR
-TLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUw
-DQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/Esr
-hMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg
-06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJF
-PnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0ls
-YSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk
-CAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV
+5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY
+1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4
+NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG
+Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91
+8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe
+pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl
+MrY=
 -----END CERTIFICATE-----
 )EOF";
+#endif
+
+#ifdef HZL
+const char *ssid="Xiaomi 15";
+const char *password="99999999";
+const char *mqtt_broker="192.168.53.36";
+const char* mqtt_usrname="BlueTeeth2";
+const char* mqtt_password="123456";
+int mqtt_port=1883;
+WiFiClient espClient;//创建底层TCP连接对象
+PubSubClient client(espClient);//基于TCP的MQTT客户端，传入网络对象
+
+#endif
+
+// Load DigiCert Global Root CA ca_cert, which is used by EMQX Cloud Serverless Deployment
+
+//IMU部分
+#ifndef SENSOR_SDA
+#define SENSOR_SDA  21
+#endif
+
+#ifndef SENSOR_SCL
+#define SENSOR_SCL  22
+#endif
+
+#ifndef SENSOR_IRQ
+#define SENSOR_IRQ  39
+#endif
+
+uint8_t QMI8658_I2C_ADDR_PRIMARY   = 0x18;
+uint8_t QMI8658_I2C_ADDR_SECONDARY = 0x19;//先测试实际目标qmi8658设备的地址！！
+SensorQMI8658 qmi;
+
+struct IMUData{
+  float acc_x;
+  float acc_y;
+  float acc_z;
+  float gyro_x;
+  float gyro_y;
+  float gyro_z;
+};
+struct IMUData *imu;
 /* 蓝牙通信部分 */
 class MyClientCallbacks:public BLEClientCallbacks {
   void onConnect(BLEClient *pclient){}
   //断联之后的回调函数
   void onDisconnect(BLEClient *pclient){
     connected=false;//作为标志方便尝试重新连接
-    Serial.println("onDisconnect:Client Disconnected");
+    Serial.println("断联:onDisconnect:Client Disconnected");
+    String msg = "{\"status\":\"blueteeth has connected\",\"distance\":";
+    msg += String(RSSI_hat);
+    msg += "}";
+    client.publish("/HZL2/pub", msg.c_str());
   }
 };
 //扫描，当任何BLE设备被发现时onResult方法会被调用
@@ -79,6 +134,15 @@ class MyAdvertisedDeviceCallbacks:public BLEAdvertisedDeviceCallbacks{
     if(advertisedDevice.haveName() && strcmp(advertisedDevice.getName().c_str(),targetName)==0){
       deviceRSSI=advertisedDevice.getRSSI();
       Serial.printf("Successfully find: %s RSSI=%d\n", advertisedDevice.getName().c_str(),deviceRSSI);
+      if (ptargetDevice != nullptr) {
+        delete ptargetDevice;
+        ptargetDevice = nullptr;
+      }
+      if (pServerAddress != nullptr) {
+        delete pServerAddress;
+        pServerAddress = nullptr;
+      }
+      
       ptargetDevice = new BLEAdvertisedDevice(advertisedDevice);
       pServerAddress = new BLEAddress(advertisedDevice.getAddress());//new分配空间给BLEAddress这个类的一个实例，通过指针指向
       scan=true;
@@ -88,8 +152,8 @@ class MyAdvertisedDeviceCallbacks:public BLEAdvertisedDeviceCallbacks{
     }
   }
 };
+
 bool connectToServer(){
-  //万万不可把pClient作为函数参数传入！！！该步将改变pClient（指针）的值，但改变的是局部变量！函数中使用指针的正确方法是改变指针指向地址而不能改变指针本身！
   //传入的pAddress就是实际的从机地址
   // 连接到远程 BLE 服务器（从机）
   if (!pClient->connect(ptargetDevice)) {
@@ -99,6 +163,62 @@ bool connectToServer(){
   Serial.println(" - Connected to server");
   connected=true;
   return true;
+  }
+bool connectToServerOfService(){
+  //传入的pAddress就是实际的从机地址
+  // 连接到远程 BLE 服务器（从机）
+  if (!pClient->connect(ptargetDevice)) {
+    //Serial.println(" - Connection failed");
+    return false;
+  }
+  Serial.println(" - Connected to server");
+  BLERemoteService *pRemoteService=pClient->getService(SERVICE_UUID);
+  if(pRemoteService==nullptr){
+    Serial.print("Failed to find service UUID:");
+    
+    Serial.println(SERVICE_UUID);
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Service found");
+  pRemoteCharacteristic=pRemoteService->getCharacteristic(CHARACTERISTIC_UUID);
+  pRemoteCharacteristic_2=pRemoteService->getCharacteristic(CHARACTERISTIC_UUID_2);
+
+  if (pRemoteCharacteristic == nullptr) {
+    Serial.print("Failed to find characteristic UUID: ");
+    Serial.println(CHARACTERISTIC_UUID);
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Characteristic1 found");
+  /*
+  if (pRemoteCharacteristic) {
+    Serial.print("Char UUID: ");
+    Serial.println(pRemoteCharacteristic->getUUID().toString().c_str());
+    Serial.print("Can read: "); Serial.println(pRemoteCharacteristic->canRead());
+    Serial.print("Can notify: "); Serial.println(pRemoteCharacteristic->canNotify());
+    Serial.print("Can write: "); Serial.println(pRemoteCharacteristic->canWrite());
+  }
+  */
+  if (pRemoteCharacteristic_2 == nullptr) {
+    Serial.print("Failed to find characteristic2 UUID: ");
+    Serial.println(CHARACTERISTIC_UUID_2);
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Characteristic2 found");
+  /*
+  if (pRemoteCharacteristic_2) {
+    Serial.print("Char UUID2: ");
+    Serial.println(pRemoteCharacteristic_2->getUUID().toString().c_str());
+    Serial.print("Can read: "); Serial.println(pRemoteCharacteristic_2->canRead());
+    Serial.print("Can notify: "); Serial.println(pRemoteCharacteristic_2->canNotify());
+    Serial.print("Can write: "); Serial.println(pRemoteCharacteristic_2->canWrite());
+  }
+  */
+  connected = true;
+  return true;
+
 }
 void BLECommunicationInit(){
   BLEDevice::init("ESP32Scanner");
@@ -109,7 +229,7 @@ void BLECommunicationInit(){
   pBLEScan->setActiveScan(true);//设置为主动扫描模式
   Serial.println("Scanning until device found...");
   
-  pBLEScan->start(5,NULL,true);//一直扫描，无结束回调函数，不阻塞
+  pBLEScan->start(60,NULL,true);//一直扫描，无结束回调函数，不阻塞
   while(!scan){
     delay(10);
   }
@@ -120,7 +240,7 @@ void BLECommunicationInit(){
   
   Serial.print("trying to Connect to ");
   Serial.println((*pServerAddress).toString().c_str());
-  while(!connectToServer()){
+  while(!connectToServerOfService()){
     delay(10);
   }
 }
@@ -128,7 +248,19 @@ void BLECommunicationInit(){
 /* WiFi与MQTT部分 */
 
 void connectToMQTT(){
+  /*
+  configTime(8*3600, 0, "pool.ntp.org", "ntp.aliyun.com");
+  struct tm timeinfo;
+  while (!getLocalTime(&timeinfo)) {
+    Serial.println("Waiting for NTP time...");
+    delay(500);
+  }
+  time_t now = time(NULL);
+  Serial.printf("ESP32 current timestamp: %ld\n", now);
+  */
+  #ifdef LFL
   espClient.setCACert(ca_cert);
+  #endif
   client.setServer(mqtt_broker,mqtt_port);
   client.setKeepAlive(60);
 
@@ -139,6 +271,7 @@ void connectToMQTT(){
             Serial.println("Connected to MQTT Broker");
         } else {
             Serial.print("Failed to connect, rc=");
+            Serial.print(client.state());
             Serial.print(client.state());
             Serial.println(" Retrying in 5 seconds.");
             delay(5000);
@@ -154,12 +287,37 @@ void MQTTInit(){
     Serial.print(".");
   }
   Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
+  Serial.println("WiFi connected, ");
+  Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
 
   connectToMQTT();
 }
+
+//IMU部分
+void IMUInit(){
+
+  pinMode(SENSOR_IRQ, INPUT);
+
+  //Serial.println("QMI8658 Sensor Temperature");
+    
+  if (!qmi.begin(Wire, QMI8658_I2C_ADDR_SECONDARY, SENSOR_SDA, SENSOR_SCL)) {
+    Serial.println("Failed to find QMI8658 - check your wiring!");
+    while (1) {
+      delay(1000);
+    }
+  }
+  Serial.println("Init QMI8658 Sensor success!");
+}
+void IMUTest(){
+  qmi.getAccelerometerScales();
+  qmi.getAccelerometer(imu->acc_x,imu->acc_y,imu->acc_z);
+  qmi.getGyroscopeScales();
+  qmi.getGyroscope(imu->gyro_x,imu->gyro_y,imu->gyro_z);
+  Serial.printf("acc: %f,%f,%f  gyro: %f,%f,%f",imu->acc_x,imu->acc_y,imu->acc_z,imu->gyro_x,imu->gyro_y,imu->gyro_z);
+
+}
+
 
 void setup() {
   Serial.begin(115200);
@@ -195,14 +353,18 @@ void loop() {
     }
     isLost=((RSSI_hat<(-90.0)));
     Serial.printf("RSSI_hat: %f\n",RSSI_hat);
+    uint8_t temp=uint8_t(abs(RSSI_hat));
+    voltage=pRemoteCharacteristic_2->readUInt16();
+    Serial.printf("Voltage: %u\n",voltage);
+    pRemoteCharacteristic->writeValue(&temp,1);
     //如果丢失进行报警
     if(isLost){
       Serial.println("Warning!!!!!");
       //tft.println("Warning!!!!");
-      String msg = "{\"status\":\"lost\",\"rssi\":";
+      String msg = "{\"status\":\"blueteeth has disconnected\",\"distance\":";
       msg += String(RSSI_hat);
       msg += "}";
-      client.publish("/tracker/alert", msg.c_str());
+      client.publish("/HZL2/pub", msg.c_str());
       delay(1000);
     }
     else{
@@ -210,8 +372,9 @@ void loop() {
     }
     delay(1000);
   }
+  
   else{
-    while(!connectToServer()){
+    while(!connectToServerOfService()){
       Serial.print(".");
       delay(10);
     }
