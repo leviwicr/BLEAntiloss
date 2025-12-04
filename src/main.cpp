@@ -26,6 +26,7 @@ static BLERemoteCharacteristic *pRemoteCharacteristic_2=nullptr;//特征，类
 
 static char targetName[]="linzhi8";
 static int deviceRSSI=-100;
+float distance=0;
 //unsigned long current_time=0;
 //unsigned long lastscan_time=0;
 int RSSICount=0;
@@ -115,15 +116,22 @@ struct IMUData{
   float gyro_z;
 };
 struct IMUData *imu;
+
+const int buzzer=16;
 /* 蓝牙通信部分 */
 class MyClientCallbacks:public BLEClientCallbacks {
-  void onConnect(BLEClient *pclient){}
+  void onConnect(BLEClient *pclient){
+    ledcSetup(1,2000,8);
+    ledcWrite(1,0);
+  }
   //断联之后的回调函数
   void onDisconnect(BLEClient *pclient){
+    ledcSetup(1,4000,8);
+    ledcWrite(1,127);
     connected=false;//作为标志方便尝试重新连接
     Serial.println("断联:onDisconnect:Client Disconnected");
-    String msg = "{\"status\":\"blueteeth has connected\",\"distance\":";
-    msg += String(RSSI_hat);
+    String msg = "{\"status\":\"blueteeth has disconnected\",\"explain:\":\"totally disconnected\",\"distance\":";
+    msg += String(distance);
     msg += "}";
     client.publish("/HZL2/pub", msg.c_str());
   }
@@ -293,6 +301,13 @@ void MQTTInit(){
   Serial.println(WiFi.localIP());
 
   connectToMQTT();
+  //发送初始位置
+  deviceRSSI=pClient->getRssi();
+  distance=pow(10,(-75-deviceRSSI)/23.3);
+  String msg = "{\"status\":\"blueteeth has connected\",\"distance\":";
+      msg += String(distance);
+      msg += "}";
+      client.publish("/HZL2/pub", msg.c_str());
 }
 
 /* 显示屏部分 */
@@ -337,21 +352,26 @@ void IMUTest(){
   Serial.printf("acc: %f,%f,%f  gyro: %f,%f,%f",imu->acc_x,imu->acc_y,imu->acc_z,imu->gyro_x,imu->gyro_y,imu->gyro_z);
 
 }
-
-
+/* 蜂鸣器部分 */
+void BuzzerInit(){
+  ledcSetup(1,2000,8);
+  ledcAttachPin(buzzer,1);
+}
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting......");
-
+  /* 蜂鸣器 */
+  BuzzerInit();
   //esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P9);
   /* 蓝牙通信部分 */
   BLECommunicationInit();
   
   //显示屏部分
-  DisplayInit();
+  //DisplayInit();
 
   /* WiFi与MQTT部分*/
   MQTTInit();
+
 }
 //无法处理连接断开情况，考虑如何解决
 void loop() {
@@ -367,26 +387,32 @@ void loop() {
     }else{
       RSSI_hat=0.9*RSSI_hat+0.1*deviceRSSI;
     }
+
+    //计算距离
+    distance=pow(10,(-75-RSSI_hat)/23.3);
+
     isLost=((RSSI_hat<(-90.0)));
-    Serial.printf("RSSI_hat: %f\n",RSSI_hat);
+    Serial.printf("RSSI_hat: %f    distance: %f     ",RSSI_hat,distance);
     uint8_t temp=uint8_t(abs(RSSI_hat));
-    voltage=pRemoteCharacteristic_2->readUInt16();
-    Serial.printf("Voltage: %u\n",voltage);
+    //voltage=pRemoteCharacteristic_2->readUInt16();
+    //Serial.printf("Voltage: %u\n",voltage);
     pRemoteCharacteristic->writeValue(&temp,1);
     //如果丢失进行报警
     if(isLost){
       Serial.println("Warning!!!!!");
       //tft.println("Warning!!!!");
-      String msg = "{\"status\":\"blueteeth has disconnected\",\"distance\":";
-      msg += String(RSSI_hat);
+      ledcWrite(1,127);
+      String msg = "{\"status\":\"blueteeth has disconnected\",\"explain:\":\"device may loss\",\"distance\":";
+      msg += String(distance);
       msg += "}";
       client.publish("/HZL2/pub", msg.c_str());
-      delay(1000);
+      delay(500);
     }
     else{
       Serial.println("safe");
+      ledcWrite(1,0);
     }
-    delay(1000);
+    delay(500);
   }
   
   else{
