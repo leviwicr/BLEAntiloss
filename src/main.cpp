@@ -26,14 +26,13 @@ static BLERemoteCharacteristic *pRemoteCharacteristic_2=nullptr;//特征，类
 
 static char targetName[]="linzhi8";
 static int deviceRSSI=-100;
+float distance=0;
 //unsigned long current_time=0;
 //unsigned long lastscan_time=0;
 int RSSICount=0;
 float RSSI_hat=0.0;
 
 uint16_t voltage=10;
-/* 屏幕部分 */
-//TFT_eSPI tft=TFT_eSPI();//创建屏幕对象，可指定对象尺寸，不指定将使用User_Setup.h中定义的尺寸
 
 /* WiFi与MQTT部分 */
 //const char *ssid="happyhappy";
@@ -86,7 +85,10 @@ PubSubClient client(espClient);//基于TCP的MQTT客户端，传入网络对象
 
 #endif
 
-// Load DigiCert Global Root CA ca_cert, which is used by EMQX Cloud Serverless Deployment
+/* 屏幕部分 */
+TFT_eSPI tft=TFT_eSPI();//创建屏幕对象，可指定对象尺寸，不指定将使用User_Setup.h中定义的尺寸
+#define LCD_BL_PIN TFT_BL			// PWD 的 IO 引脚
+#define LCD_BL_PWM_CHANNEL 0		// Channel  通道, 0 ~ 16，高速通道（0 ~ 7）由80MHz时钟驱动，低速通道（8 ~ 15）由 1MHz 时钟驱动
 
 //IMU部分
 #ifndef SENSOR_SDA
@@ -114,15 +116,22 @@ struct IMUData{
   float gyro_z;
 };
 struct IMUData *imu;
+
+const int buzzer=16;
 /* 蓝牙通信部分 */
 class MyClientCallbacks:public BLEClientCallbacks {
-  void onConnect(BLEClient *pclient){}
+  void onConnect(BLEClient *pclient){
+    ledcSetup(1,2000,8);
+    ledcWrite(1,0);
+  }
   //断联之后的回调函数
   void onDisconnect(BLEClient *pclient){
+    ledcSetup(1,4000,8);
+    ledcWrite(1,127);
     connected=false;//作为标志方便尝试重新连接
     Serial.println("断联:onDisconnect:Client Disconnected");
-    String msg = "{\"status\":\"blueteeth has connected\",\"distance\":";
-    msg += String(RSSI_hat);
+    String msg = "{\"status\":\"blueteeth has disconnected\",\"explain:\":\"totally disconnected\",\"distance\":";
+    msg += String(distance);
     msg += "}";
     client.publish("/HZL2/pub", msg.c_str());
   }
@@ -292,6 +301,32 @@ void MQTTInit(){
   Serial.println(WiFi.localIP());
 
   connectToMQTT();
+  //发送初始位置
+  deviceRSSI=pClient->getRssi();
+  distance=pow(10,(-75-deviceRSSI)/23.3);
+  String msg = "{\"status\":\"blueteeth has connected\",\"distance\":";
+      msg += String(distance);
+      msg += "}";
+      client.publish("/HZL2/pub", msg.c_str());
+}
+
+/* 显示屏部分 */
+void DisplayInit(){
+  // /* 配置LEDC PWM通道属性，PWD通道为 0，频率为1KHz，8位分辨率*/
+    ledcSetup(LCD_BL_PWM_CHANNEL, 1000, 8);
+ 
+	// /* 配置LEDC PWM通道属性,通道0的PWM波在LCD_BL_PIN上输出 */
+    ledcAttachPin(LCD_BL_PIN, LCD_BL_PWM_CHANNEL);
+ 
+	ledcWrite(LCD_BL_PWM_CHANNEL, (int)(1 * 255));//满亮度
+  tft.init();
+  tft.setRotation(0);  //设置显示图像旋转方向
+  tft.invertDisplay(0);  //是否反转所有显示颜色
+  tft.fillScreen(TFT_BLACK);
+  tft.setCursor(0,0,2);//将“光标”设置在显示器的左上角（0,0），并选择字体2 
+  tft.setTextColor(TFT_WHITE,TFT_BLUE);//将字体颜色设置为白色，背景为蓝色
+  tft.setTextSize(1);//将文本大小倍增设置为1
+  tft.println("Hello world");
 }
 
 //IMU部分
@@ -317,25 +352,26 @@ void IMUTest(){
   Serial.printf("acc: %f,%f,%f  gyro: %f,%f,%f",imu->acc_x,imu->acc_y,imu->acc_z,imu->gyro_x,imu->gyro_y,imu->gyro_z);
 
 }
-
-
+/* 蜂鸣器部分 */
+void BuzzerInit(){
+  ledcSetup(1,2000,8);
+  ledcAttachPin(buzzer,1);
+}
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting......");
-
+  /* 蜂鸣器 */
+  BuzzerInit();
   //esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P9);
   /* 蓝牙通信部分 */
   BLECommunicationInit();
   
   //显示屏部分
-  //tft.fillScreen(TFT_BLACK);
-  //tft.setCursor(0,0,2);
-  //tft.setTextColor(TFT_WHITE,TFT_BLACK);
-  //tft.setTextSize(1);
-  //tft.println("Hello world");
+  //DisplayInit();
 
   /* WiFi与MQTT部分*/
   MQTTInit();
+
 }
 //无法处理连接断开情况，考虑如何解决
 void loop() {
@@ -351,26 +387,32 @@ void loop() {
     }else{
       RSSI_hat=0.9*RSSI_hat+0.1*deviceRSSI;
     }
+
+    //计算距离
+    distance=pow(10,(-75-RSSI_hat)/23.3);
+
     isLost=((RSSI_hat<(-90.0)));
-    Serial.printf("RSSI_hat: %f\n",RSSI_hat);
+    Serial.printf("RSSI_hat: %f    distance: %f     ",RSSI_hat,distance);
     uint8_t temp=uint8_t(abs(RSSI_hat));
-    voltage=pRemoteCharacteristic_2->readUInt16();
-    Serial.printf("Voltage: %u\n",voltage);
+    //voltage=pRemoteCharacteristic_2->readUInt16();
+    //Serial.printf("Voltage: %u\n",voltage);
     pRemoteCharacteristic->writeValue(&temp,1);
     //如果丢失进行报警
     if(isLost){
       Serial.println("Warning!!!!!");
       //tft.println("Warning!!!!");
-      String msg = "{\"status\":\"blueteeth has disconnected\",\"distance\":";
-      msg += String(RSSI_hat);
+      ledcWrite(1,127);
+      String msg = "{\"status\":\"blueteeth has disconnected\",\"explain:\":\"device may loss\",\"distance\":";
+      msg += String(distance);
       msg += "}";
       client.publish("/HZL2/pub", msg.c_str());
-      delay(1000);
+      delay(500);
     }
     else{
       Serial.println("safe");
+      ledcWrite(1,0);
     }
-    delay(1000);
+    delay(500);
   }
   
   else{
