@@ -88,9 +88,9 @@
 #define TFT_WIDTH  240 // ST7789 240 x 240 and 240 x 320
 // #define TFT_HEIGHT 160
 // #define TFT_HEIGHT 128
-// #define TFT_HEIGHT 240 // ST7789 240 x 240
-#define TFT_HEIGHT 320 // ST7789 240 x 320
-// #define TFT_HEIGHT 240 // GC9A01 240 x 240
+#define TFT_HEIGHT 240 // ST7789 240 x 240
+//#define TFT_HEIGHT 320 // ST7789 240 x 320
+//#define TFT_HEIGHT 240 // GC9A01 240 x 240
 
 // For ST7735 ONLY, define the type of display, originally this was based on the
 // colour of the tab on the screen protector film but this is not always true, so try
@@ -129,8 +129,8 @@
 // driven with a PWM signal or turned OFF/ON then this must be handled by the user
 // sketch. e.g. with digitalWrite(TFT_BL, LOW);
 
-// #define TFT_BL   32            // LED back-light control pin
-// #define TFT_BACKLIGHT_ON HIGH  // Level to turn ON back-light (HIGH or LOW)
+//#define TFT_BL   25            // LED back-light control pin
+//#define TFT_BACKLIGHT_ON HIGH  // Level to turn ON back-light (HIGH or LOW)
 
 
 
@@ -167,13 +167,13 @@
 // ###### EDIT THE PIN NUMBERS IN THE LINES FOLLOWING TO SUIT YOUR ESP8266 SETUP ######
 
 // For NodeMCU - use pin numbers in the form PIN_Dx where Dx is the NodeMCU pin designation
-#define TFT_MISO  PIN_D6  // Automatically assigned with ESP8266 if not defined
-#define TFT_MOSI  PIN_D7  // Automatically assigned with ESP8266 if not defined
-#define TFT_SCLK  PIN_D5  // Automatically assigned with ESP8266 if not defined
+//#define TFT_MISO  PIN_D6  // Automatically assigned with ESP8266 if not defined
+//#define TFT_MOSI  PIN_D7  // Automatically assigned with ESP8266 if not defined
+//#define TFT_SCLK  PIN_D5  // Automatically assigned with ESP8266 if not defined
 
-#define TFT_CS    PIN_D8  // Chip select control pin D8
-#define TFT_DC    PIN_D3  // Data Command control pin
-#define TFT_RST   PIN_D4  // Reset pin (could connect to NodeMCU RST, see next line)
+//#define TFT_CS    PIN_D8  // Chip select control pin D8
+//#define TFT_DC    PIN_D3  // Data Command control pin
+//#define TFT_RST   PIN_D4  // Reset pin (could connect to NodeMCU RST, see next line)
 //#define TFT_RST  -1     // Set TFT_RST to -1 if the display RESET is connected to NodeMCU RST or 3.3V
 
 
@@ -233,12 +233,12 @@
 
 // For the M5Stack module use these #define lines
 //#define TFT_MISO 19
-//#define TFT_MOSI 23
-//#define TFT_SCLK 18
-//#define TFT_CS   14  // Chip select control pin
-//#define TFT_DC   27  // Data Command control pin
-//#define TFT_RST  33  // Reset pin (could connect to Arduino RESET pin)
-//#define TFT_BL   32  // LED back-light (required for M5Stack)
+#define TFT_MOSI 13
+#define TFT_SCLK 14
+#define TFT_CS   15  // Chip select control pin
+#define TFT_DC   27  // Data Command control pin
+#define TFT_RST  4  // Reset pin (could connect to Arduino RESET pin)
+#define TFT_BL   25  // LED back-light (required for M5Stack)
 
 // ######       EDIT THE PINs BELOW TO SUIT YOUR ESP32 PARALLEL TFT SETUP        ######
 
